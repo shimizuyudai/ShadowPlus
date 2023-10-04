@@ -1,0 +1,110 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+struct Particle
+{
+	float3 startPos;
+	float3 pos;
+	float3 velocity;
+	float brightness;
+};
+
+Texture2D<float4> shadowTexture;
+Texture2D<float4> noiseTexture;
+RWTexture2D<float4> fieldTexture;
+RWStructuredBuffer<Particle> Particles;
+SamplerState _LinearClamp;
+SamplerState _LinearRepeat;
+float speed;
+float DeltaTime;
+float ElapsedTime;
+float ratio;
+
+float map(float currentVal, float tempAStart, float tempAGoal, float tempBStart, float tempBGoal)
+{
+	return ((currentVal - tempAStart) / (tempAGoal - tempAStart)) * (tempBGoal - tempBStart) + tempBStart;
+}
+
+float2 random2(float2 st) {
+	st = float2(dot(st, float2(127.1, 311.7)),
+		dot(st, float2(269.5, 183.3)));
+	return -1.0 + 2.0*frac(sin(st)*43758.5453123);
+}
+
+float perlinNoise(float2 st)
+{
+	float2 p = floor(st);
+	float2 f = frac(st);
+	float2 u = f*f*(3.0 - 2.0*f);
+
+	float v00 = random2(p + float2(0, 0));
+	float v10 = random2(p + float2(1, 0));
+	float v01 = random2(p + float2(0, 1));
+	float v11 = random2(p + float2(1, 1));
+
+	return lerp(lerp(dot(v00, f - float2(0, 0)), dot(v10, f - float2(1, 0)), u.x),
+		lerp(dot(v01, f - float2(0, 1)), dot(v11, f - float2(1, 1)), u.x),
+		u.y) + 0.5f;
+}
+
+
+[numthreads(8, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+	int index = id.x;
+	Particles[index].brightness = perlinNoise(float2(index*ratio, ElapsedTime));
+	//テクスチャのサイズを測る
+	float w, h;
+	noiseTexture.GetDimensions(w, h);
+	//パーティクルの座標からuv座標へ変換
+	float2 uv = float2((Particles[index].pos.x + 8.0) / 16.0, ((Particles[index].pos.y + 4.5) / 9.0));
+	float4 noiseCol = noiseTexture.SampleLevel(_LinearClamp, uv, 0);
+	float4 shadowCol = shadowTexture.SampleLevel(_LinearClamp, uv, 0);
+	float shadowBrightness = (shadowCol.r + shadowCol.g + shadowCol.b) / 3;
+	float rate = 0;
+	float dumper = 0.9975;
+	if (shadowBrightness > 0.5) {
+		rate = 7.5;
+		dumper = 1;
+	}
+
+	float noiseBrightness = (noiseCol.r + noiseCol.g + noiseCol.b) / 3;
+	float angle = map(noiseBrightness, 0, 1, 0, 720);
+	angle += index*0.000575;
+	float3 direction = float3(sin(radians(angle)), cos(radians(angle)), 0);
+	//direction.y *= -1;
+	float3 accel = direction*speed;
+	Particles[index].velocity += accel*rate;
+	Particles[index].velocity *= dumper;
+	Particles[index].pos += Particles[index].velocity * DeltaTime;
+
+	if (Particles[index].pos.y < -4.5) {
+		//Particles[index].pos.y = 4.5;
+		Particles[index].velocity *= -1;
+	}
+	else if(Particles[index].pos.y > 4.5){
+		//Particles[index].pos.y = -4.5;
+		Particles[index].velocity *= -1;
+		//Particles[index].velocity = float3(0, 0, 0);
+	}
+
+	if (Particles[index].pos.x < -8) {
+		//Particles[index].pos.x = 8;
+		Particles[index].velocity *= -1;
+		//Particles[index].velocity = float3(0, 0, 0);
+	}
+	else if (Particles[index].pos.x > 8) {
+		//Particles[index].pos.x = -8;
+		Particles[index].velocity *= -1;
+		//Particles[index].velocity = float3(0, 0, 0);
+	}
+
+	Particles[index].pos.z = 0;
+
+	Particles[index].velocity *= 0.9975;
+
+	Particles[index].pos.x = clamp(Particles[index].pos.x, -8, 8);
+	Particles[index].pos.y = clamp(Particles[index].pos.y, -4.5, 4.5);
+	
+}
+

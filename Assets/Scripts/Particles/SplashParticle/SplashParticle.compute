@@ -1,0 +1,81 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+Texture2D<float4> shadowTexture;
+float3 target;
+
+struct Particle
+{
+	float3 pos;
+	float3 defaultPosition;
+	float3 velocity;
+	float3 splashVelocity;
+	float destination;
+	float speed;
+	float size;
+	float splashRate;
+	int isRaise;
+};
+
+float DeltaTime;
+float gravity;
+float splashSpeed;
+
+RWStructuredBuffer<Particle> Particles;
+SamplerState _LinearClamp;
+SamplerState _LinearRepeat;
+
+float rand(float2 uv)
+{
+	return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
+}
+
+[numthreads(8, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+	int index = id.x;
+
+	float2 uv = float2((Particles[index].pos.x + 8.0)/16.0, ((Particles[index].pos.y + 4.5) / 9.0));
+	float4 col = shadowTexture.SampleLevel(_LinearClamp, uv, 0);
+	float brightness = (col.r + col.g + col.b) / 3;
+	float3 accel = float3(0,0,0);
+	if (brightness > 0.5) {
+		//人物エリア内
+		accel += Particles[index].splashVelocity;
+		if (Particles[index].pos.y >= 4.5) {
+			Particles[index].velocity = 0;
+		}
+		Particles[index].isRaise = 0;
+	}
+	else {
+		if (Particles[index].isRaise == 1) {
+			if (Particles[index].pos.y < Particles[index].destination) {
+				accel.y += Particles[index].speed;
+			}
+			else {
+				Particles[index].isRaise = 0;
+			}
+		}
+		else {
+			if (Particles[index].pos.y <= -4.5) {
+				Particles[index].destination = -4.5 + rand(float2(Particles[index].pos.x, Particles[index].pos.y))*Particles[index].splashRate;
+				Particles[index].isRaise = 1;
+				
+			}
+			else {
+				accel.y -= gravity;
+			}
+		}
+	}
+	Particles[index].velocity += accel;
+	Particles[index].pos += Particles[index].velocity*DeltaTime;
+	if (Particles[index].pos.x < -8 || Particles[index].pos.x > 8) {
+		Particles[index].velocity.x *= -1;
+	}
+
+	Particles[index].pos.x = clamp(Particles[index].pos.x, -8, 8);
+	Particles[index].pos.y = clamp(Particles[index].pos.y, -4.5, 4.5);
+
+	
+}
+

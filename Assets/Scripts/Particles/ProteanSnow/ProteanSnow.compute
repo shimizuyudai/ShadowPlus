@@ -1,0 +1,57 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+Texture2D<float4> shadowTexture;
+struct Particle
+{
+	float3 startPos;
+	float3 pos;
+	float3 velocity;
+	float3 angle;
+	float size;
+	int textureId;
+};
+
+float DeltaTime;
+
+RWStructuredBuffer<Particle> Particles;
+SamplerState _LinearClamp;
+SamplerState _LinearRepeat;
+float speed;
+float3 rotationSpeed;
+
+
+float map(float currentVal, float tempAStart, float tempAGoal, float tempBStart, float tempBGoal)
+{
+	return ((currentVal - tempAStart) / (tempAGoal - tempAStart)) * (tempBGoal - tempBStart) + tempBStart;
+}
+
+[numthreads(8, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+	int index = id.x;
+	float w, h;
+	shadowTexture.GetDimensions(w, h);
+
+	//パーティクルの座標からuv座標へ変換
+	int textureId = 0;
+	if (Particles[index].pos.x > -8 && Particles[index].pos.x < 8 && Particles[index].pos.y > -4.5 && Particles[index].pos.y < 4.5) {
+		float2 uv = float2((Particles[index].pos.x + 8.0) / 16.0, ((Particles[index].pos.y + 4.5) / 9.0));
+		float4 shadowCol = shadowTexture.SampleLevel(_LinearClamp, uv, 0);
+		float shadowBrightness = (shadowCol.r + shadowCol.g + shadowCol.b) / 3;
+		if (shadowBrightness > 0.5) {
+			textureId = 1;
+			Particles[index].angle = float3(0,0,0);
+		}
+	}
+	Particles[index].textureId = textureId;
+	Particles[index].angle += rotationSpeed*DeltaTime;
+	Particles[index].pos += Particles[index].velocity*speed*DeltaTime;
+	if (Particles[index].pos.y < -4.5) {
+		Particles[index].pos = Particles[index].startPos;
+		Particles[index].angle = float3(0, 0, 0);
+	}
+
+	Particles[index].pos.z = 0;
+}
+

@@ -1,0 +1,96 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+Texture2D<float4> shadowTexture;
+
+struct Particle
+{
+	float3 rotation;
+	float3 defaultRotation;
+	float3 startPos;
+	float3 pos;
+	float3 velocity;
+	float size;
+	int textureId;
+	float rotationSpeed;
+	
+};
+
+float DeltaTime;
+
+RWStructuredBuffer<Particle> Particles;
+SamplerState _LinearClamp;
+SamplerState _LinearRepeat;
+float speed;
+float ElapsedTime;
+
+float2 random2(float2 st) {
+	st = float2(dot(st, float2(127.1, 311.7)),
+		dot(st, float2(269.5, 183.3)));
+	return -1.0 + 2.0*frac(sin(st)*43758.5453123);
+}
+
+float rand(float2 uv)
+{
+	return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
+}
+
+float perlinNoise(float2 st)
+{
+	float2 p = floor(st);
+	float2 f = frac(st);
+	float2 u = f*f*(3.0 - 2.0*f);
+
+	float v00 = random2(p + float2(0, 0));
+	float v10 = random2(p + float2(1, 0));
+	float v01 = random2(p + float2(0, 1));
+	float v11 = random2(p + float2(1, 1));
+
+	return lerp(lerp(dot(v00, f - float2(0, 0)), dot(v10, f - float2(1, 0)), u.x),
+		lerp(dot(v01, f - float2(0, 1)), dot(v11, f - float2(1, 1)), u.x),
+		u.y) + 0.5f;
+}
+
+
+float map(float currentVal, float tempAStart, float tempAGoal, float tempBStart, float tempBGoal)
+{
+	return ((currentVal - tempAStart) / (tempAGoal - tempAStart)) * (tempBGoal - tempBStart) + tempBStart;
+}
+
+[numthreads(8, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+	int index = id.x;
+	float w, h;
+	shadowTexture.GetDimensions(w, h);
+
+	//パーティクルの座標からuv座標へ変換
+	int textureId = 0;
+	float3 damper = float3(1,1,1);
+	if (Particles[index].pos.x > -8 && Particles[index].pos.x < 8 && Particles[index].pos.y > -4.5 && Particles[index].pos.y < 4.5) {
+		float2 uv = float2((Particles[index].pos.x + 8.0) / 16.0, ((Particles[index].pos.y + 4.5) / 9.0));
+		float4 shadowCol = shadowTexture.SampleLevel(_LinearClamp, uv, 0);
+		float shadowBrightness = (shadowCol.r + shadowCol.g + shadowCol.b) / 3;
+		if (shadowBrightness > 0.5) {
+			textureId = 1;
+			Particles[index].rotation.z += Particles[index].rotationSpeed*DeltaTime*(perlinNoise(float2(index, ElapsedTime)) * 2 - 1);
+			damper.y = 0.5;
+			damper.x = 1.125;
+		}
+		else {
+			Particles[index].rotation = Particles[index].defaultRotation;
+		}
+	}
+	Particles[index].textureId = textureId;
+	Particles[index].rotation += Particles[index].rotationSpeed*DeltaTime*(perlinNoise(float2(index, ElapsedTime)) * 2 - 1);
+	//Particles[index].angle += 120;
+	float3 velocity = Particles[index].velocity;
+	velocity *= damper;
+	Particles[index].pos += velocity*speed*DeltaTime;
+	if (Particles[index].pos.y < - 4.5 || Particles[index].pos.x < -9 || Particles[index].pos.x > 9) {
+		Particles[index].pos = Particles[index].startPos;
+		Particles[index].rotation = Particles[index].defaultRotation;
+	}
+	Particles[index].pos.z = 0;
+}
+

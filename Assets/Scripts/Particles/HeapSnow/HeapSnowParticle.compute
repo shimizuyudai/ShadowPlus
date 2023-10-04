@@ -1,0 +1,67 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+Texture2D<float4> heapTexture;
+Texture2D<float4> shadowTexture;
+
+struct Particle
+{
+	float3 startPos;
+	float3 pos;
+	float3 velocity;
+	float3 startVelocity;
+	float4 color;
+	float size;
+};
+
+float DeltaTime;
+
+RWStructuredBuffer<Particle> Particles;
+SamplerState _LinearClamp;
+SamplerState _LinearRepeat;
+float speed;
+float size;
+float offsetY;
+
+
+
+float map(float currentVal, float tempAStart, float tempAGoal, float tempBStart, float tempBGoal)
+{
+	return ((currentVal - tempAStart) / (tempAGoal - tempAStart)) * (tempBGoal - tempBStart) + tempBStart;
+}
+
+
+[numthreads(8, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+	int index = id.x;
+	
+
+	//パーティクルの座標からuv座標へ変換
+	float dumper = 1;
+	float size = Particles[index].size;
+	float3 nextPos = Particles[index].pos + Particles[index].velocity*speed*DeltaTime;
+	nextPos.y -= size/2;
+	if (nextPos.x > -8 && nextPos.x < 8 && nextPos.y > -4.5 && nextPos.y < 4.5) {
+		float2 uv = float2((nextPos.x + 8.0) / 16.0, ((nextPos.y + offsetY + 4.5) / 9.0));
+		float4 heapCol = heapTexture.SampleLevel(_LinearClamp, uv, 0);
+		float heapBrightness = (heapCol.r + heapCol.g + heapCol.b) / 3;
+		if (heapBrightness > 0.1) {
+			Particles[index].color = float4(0, 1, 1, 0.6);
+			Particles[index].velocity = float3(0, -7.5, 0);
+		}
+		else {
+			Particles[index].color = float4(1, 0, 1, 0.6);
+			nextPos.y += size/2;
+			Particles[index].pos = nextPos;
+		}
+	}
+	else {
+		Particles[index].pos = Particles[index].startPos;
+		Particles[index].velocity = Particles[index].startVelocity;
+	}
+	/*if (Particles[index].pos.y <= - 4.5 || Particles[index].pos.x >= 8 || Particles[index].pos.x <= -8) {
+		
+	}*/
+}
+
